@@ -83,8 +83,8 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse_nics(vm, hardware)
     vm.nics.each_with_index do |nic, index|
       # Get IP/MAC from NIC structure
-    ip_address = nic.network_info&.ipv4_config&.ip_address&.value rescue nil
-    mac_address = nic.backing_info&.mac_address || "unknown"
+      ip_address  = nic.network_info&.ipv4_config&.ip_address&.value rescue nil
+      mac_address = nic.backing_info&.mac_address || "unknown"
 
       network = persister.networks.build(
         :hardware    => hardware,
