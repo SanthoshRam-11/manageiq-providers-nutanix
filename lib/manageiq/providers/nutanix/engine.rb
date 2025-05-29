@@ -11,6 +11,12 @@ module ManageIQ
           app.config.paths["config/secrets"] << root.join("config", "secrets.yml").to_s
         end
 
+        initializer "manageiq.providers.nutanix.vendor_registration", :after => :load_config_initializers do
+          if defined?(::VmOrTemplate::VENDOR_TYPES) && !::VmOrTemplate::VENDOR_TYPES.include?("nutanix")
+            ::VmOrTemplate::VENDOR_TYPES << "nutanix"
+          end
+        end
+
         def self.vmdb_plugin?
           true
         end
