@@ -91,7 +91,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
         :description => "NIC #{index}",
         :ipaddress   => ip_address,
       )
-      
+
       persister.guest_devices.build(
         :hardware       => hardware,
         :uid_ems        => nic.ext_id,
@@ -136,10 +136,8 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
         :uid_ems    => template.ext_id || template.uuid || template.id,
         :name => template.template_name || "Unnamed Template",
         :vendor     => "nutanix",
-        :type       => 'ManageIQ::Providers::Nutanix::InfraManager::Template',
         :location   => template_storage_location(template),
-        :raw_power_state => 'never',
-        :template   => true
+        :raw_power_state => 'never'
       )
     end
   end
