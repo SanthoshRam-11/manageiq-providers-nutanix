@@ -42,7 +42,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
       :description      => vm.description,
       :location         => vm.cluster&.ext_id || "unknown",
       :vendor           => "nutanix",
-      :raw_power_state  => vm.power_state.downcase,
+      :raw_power_state  => vm.power_state,
       :host        => persister.hosts.lazy_find(vm.host&.ext_id),
       :ems_cluster => persister.ems_clusters.lazy_find(vm.cluster&.ext_id),
       :ems_id           => persister.manager.id,
@@ -147,13 +147,5 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
     template.try(:storage_container_path) ||
     template.try(:uri) ||
     "unknown-location"
-  end
-
-  def map_power_state(state)
-    case state&.downcase
-    when "on"    then "on"
-    when "off"   then "off"
-    else "unknown"
-    end
   end
 end
