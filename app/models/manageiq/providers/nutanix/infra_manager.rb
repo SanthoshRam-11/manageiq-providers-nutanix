@@ -1,15 +1,5 @@
 class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraManager
-  default_value_for :vendor, "nutanix"
-  require_nested :MetricsCapture
-  require_nested :MetricsCollectorWorker
-  require_nested :Refresher
-  require_nested :RefreshWorker
-  require_nested :Vm
   supports :create
-
-  def vendor
-    "nutanix"
-  end
 
   def self.params_for_create
     {
