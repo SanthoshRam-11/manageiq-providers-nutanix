@@ -12,33 +12,34 @@ class ManageIQ::Providers::Nutanix::Inventory::Collector::InfraManager < ManageI
 
   def clusters
     @clusters ||= {}
-    
+
    # Collect clusters from VM references only
     vms.each do |vm|
       next unless vm.cluster
-      
+
       @clusters[vm.cluster.ext_id] ||= {
-        :name => "Cluster-#{vm.cluster.ext_id}",  # Default name pattern
+        :name    => "Cluster-#{vm.cluster.ext_id}",  # Default name pattern
         :ems_ref => vm.cluster.ext_id
       }
     end
-    
+
     @clusters
   end
 
   def hosts
    @hosts ||= {}
-    
+
    # Collect hosts from VM references
     vms.each do |vm|
       next unless vm.host
-      
+
       @hosts[vm.host.ext_id] ||= {
-        :name => "Host-#{vm.host.ext_id}",  # Default name pattern
-        :ems_ref => vm.host.ext_id
+        :name       => "Host-#{vm.host.ext_id}",  # Default name pattern
+        :ems_ref    => vm.host.ext_id,
+        :cluster_id => vm.cluster.ext_id
       }
     end
-    
+
     @hosts
   end
 
