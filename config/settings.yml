@@ -16,11 +16,6 @@
   :level_nutanix: info
 :workers:
   :worker_base:
-    :event_catcher:
-      :event_catcher_nutanix:
-        :poll: 20.seconds
     :queue_worker_base:
-      :ems_metrics_collector_worker:
-        :ems_metrics_collector_worker_nutanix: {}
       :ems_refresh_worker:
         :ems_refresh_worker_nutanix: {}

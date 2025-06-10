@@ -1,13 +1,11 @@
 class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::InfraManager::Vm
-  VENDOR = 'nutanix'.freeze
+  POWER_STATES = {
+    "ON"  => "on",
+    "OFF" => "off"
+  }.freeze
 
-  # Required by ManageIQ for UI/vendor logic
-  def vendor
-    "nutanix"
-  end
-
-  def power_state
-    raw_power_state || 'unknown'
+  def self.calculate_power_state(raw_power_state)
+    POWER_STATES[raw_power_state] || super
   end
 
   def self.display_name(number = 1)

@@ -11,10 +11,10 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse_hosts_and_clusters
     # Clusters must be parsed first
     collector.clusters.each_value do |cluster|
-      persister.ems_clusters.build(
+      persister.clusters.build(
         :ems_ref => cluster[:ems_ref],
-        :name => cluster[:name],  # Now using real cluster names
-        :ems_id => persister.manager.id,
+        :name    => cluster[:name],  # Now using real cluster names
+        :ems_id  => persister.manager.id,
         :uid_ems => cluster[:ems_ref]
       )
     end
@@ -23,10 +23,9 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
     collector.hosts.each_value do |host|
       # In parse_hosts_and_clusters method
       persister.hosts.build(
-        :ems_ref => host[:ems_ref],
-        :name => host[:name],
-        :ems_id => persister.manager.id,
-        :type => 'ManageIQ::Providers::Nutanix::InfraManager::Host'  # Now matches defined class
+        :ems_ref     => host[:ems_ref],
+        :name        => host[:name],
+        :ems_cluster => persister.clusters.lazy_find(host[:cluster_id])
       )
     end
   end
@@ -37,26 +36,27 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
     # Main VM attributes
     vm_obj = persister.vms.build(
-      :ems_ref          => vm.bios_uuid,
+      :ems_ref          => vm.ext_id,
+      :uid_ems          => vm.bios_uuid,
       :name             => vm.name,
       :description      => vm.description,
       :location         => vm.cluster&.ext_id || "unknown",
       :vendor           => "nutanix",
-      :raw_power_state  => vm.power_state.downcase,
-      :host        => persister.hosts.lazy_find(vm.host&.ext_id),
-      :ems_cluster => persister.ems_clusters.lazy_find(vm.cluster&.ext_id),
+      :raw_power_state  => vm.power_state,
+      :host             => persister.hosts.lazy_find(vm.host&.ext_id),
+      :ems_cluster      => persister.clusters.lazy_find(vm.cluster&.ext_id),
       :ems_id           => persister.manager.id,
       :connection_state => "connected",
-      :boot_time        => vm.create_time,
-      :type             => 'ManageIQ::Providers::Nutanix::InfraManager::Vm'
+      :boot_time        => vm.create_time
     )
+
     hardware = persister.hardwares.build(
-      :vm_or_template => vm_obj,
-      :memory_mb      => vm.memory_size_bytes / 1.megabyte,
-      :cpu_total_cores => vm.num_sockets * vm.num_cores_per_socket,
-      :cpu_sockets    => vm.num_sockets,
+      :vm_or_template       => vm_obj,
+      :memory_mb            => vm.memory_size_bytes / 1.megabyte,
+      :cpu_total_cores      => vm.num_sockets * vm.num_cores_per_socket,
+      :cpu_sockets          => vm.num_sockets,
       :cpu_cores_per_socket => vm.num_cores_per_socket,
-      :guest_os       => os_info # Use extracted OS info
+      :guest_os             => os_info # Use extracted OS info
     )
     # Then use vm_obj for subsequent associations
     parse_disks(vm, hardware)  # This should reference the hardware object
@@ -83,23 +83,26 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse_nics(vm, hardware)
     vm.nics.each_with_index do |nic, index|
       # Get IP/MAC from NIC structure
-    ip_address = nic.network_info&.ipv4_config&.ip_address&.value rescue nil
-    mac_address = nic.backing_info&.mac_address || "unknown"
+      ip_address  = nic.network_info&.ipv4_config&.ip_address&.value rescue nil
+      mac_address = nic.backing_info&.mac_address || "unknown"
+
+      next if ip_address.nil?
 
       network = persister.networks.build(
         :hardware    => hardware,
         :description => "NIC #{index}",
         :ipaddress   => ip_address,
+        :ipv6address => nil
       )
-      
+
       persister.guest_devices.build(
-        :hardware       => hardware,
-        :uid_ems        => nic.ext_id,
-        :device_name    => "NIC #{index}",
-        :device_type    => 'ethernet',
+        :hardware        => hardware,
+        :uid_ems         => nic.ext_id,
+        :device_name     => "NIC #{index}",
+        :device_type     => 'ethernet',
         :controller_type => 'ethernet',
-        :address        => mac_address,
-        :network        => network
+        :address         => mac_address,
+        :network         => network
       )
     end
   end
@@ -113,10 +116,10 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_datastores
     collector.datastores.each do |ds|
-      name         = ds.name rescue "unknown"
-      ems_ref      = ds.ext_id || ds.uuid rescue nil
-      total_space  = ds.resources&.map(&:size_bytes)&.sum rescue nil
-      free_space   = nil  # Nutanix Volume Groups may not expose this directly
+      name        = ds.name rescue "unknown"
+      ems_ref     = ds.ext_id || ds.uuid rescue nil
+      total_space = ds.resources&.map(&:size_bytes)&.sum rescue nil
+      free_space  = nil  # Nutanix Volume Groups may not expose this directly
 
       persister.storages.build(
         :name        => name,
@@ -131,31 +134,13 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse_templates
     collector.templates.each do |template|
       persister.miq_templates.build(
-        :ems_id     => persister.manager.id,
-        :ems_ref    => template.ext_id || template.uuid || template.id,
-        :uid_ems    => template.ext_id || template.uuid || template.id,
-        :name => template.template_name || "Unnamed Template",
-        :vendor     => "nutanix",
-        :type       => 'ManageIQ::Providers::Nutanix::InfraManager::Template',
-        :location   => template_storage_location(template),
-        :raw_power_state => 'never',
-        :template   => true
+        :ems_ref         => template.ext_id || template.uuid || template.id,
+        :uid_ems         => template.ext_id || template.uuid || template.id,
+        :name            => template.template_name || "Unnamed Template",
+        :vendor          => "nutanix",
+        :location        => template.try(:storage_container_path) || template.try(:uri) || "unknown-location",
+        :raw_power_state => 'never'
       )
-    end
-  end
-
-  def template_storage_location(template)
-    # Try different candidate fields or fallback to a dummy string
-    template.try(:storage_container_path) ||
-    template.try(:uri) ||
-    "unknown-location"
-  end
-
-  def map_power_state(state)
-    case state&.downcase
-    when "on"    then "on"
-    when "off"   then "off"
-    else "unknown"
     end
   end
 end
