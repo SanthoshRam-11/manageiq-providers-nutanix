@@ -1,4 +1,7 @@
 class ManageIQ::Providers::Nutanix::Inventory::Collector < ManageIQ::Providers::Inventory::Collector
+  require "nutanix_vmm"
+  require "nutanix_clustermgmt"
+
   private
 
   def cluster_mgmt_connection

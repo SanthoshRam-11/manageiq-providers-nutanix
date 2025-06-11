@@ -20,6 +20,24 @@ describe ManageIQ::Providers::Nutanix::InfraManager::Refresher do
       end
     end
 
+    context "targeted refresh" do
+      context "vm" do
+        before        { with_vcr { EmsRefresh.refresh(ems) } }
+        let(:targets) { [ems.vms.first] }
+
+        it "performs a targeted refresh" do
+          with_vcr("targeted_vm") { subject.refresh }
+
+          assert_counts
+          assert_ems_counts
+          assert_specific_vm
+          assert_specific_template
+          assert_specific_host
+          assert_specific_cluster
+        end
+      end
+    end
+
     def assert_counts
       expect(Vm.count).to eq(26)
       expect(MiqTemplate.count).to eq(1)

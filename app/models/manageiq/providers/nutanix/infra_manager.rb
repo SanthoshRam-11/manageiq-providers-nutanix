@@ -1,6 +1,10 @@
 class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraManager
   supports :create
 
+  def allow_targeted_refresh?
+    true
+  end
+
   def self.params_for_create
     {
       :fields => [
@@ -77,13 +81,13 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
   def self.verify_credentials(args)
     endpoint = args.dig("endpoints", "default")
     authentication = args.dig("authentications", "default")
-    
+
     hostname = endpoint&.dig("hostname")
     port = endpoint&.dig("port")
     verify_ssl = endpoint&.dig("verify_ssl") || OpenSSL::SSL::VERIFY_NONE
     username = authentication&.dig("userid")
     password = ManageIQ::Password.try_decrypt(authentication&.dig("password"))
-    
+
     api_client = raw_connect(hostname, port, username, password, verify_ssl)
 
     # Test connection
@@ -107,7 +111,7 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
 
     auth_type = options[:auth_type] || 'default'
     username, password = auth_user_pwd(auth_type)
-    
+
     api_client = self.class.raw_connect(
       default_endpoint.hostname,
       default_endpoint.port,
@@ -147,7 +151,7 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
     end
 
     verify_ssl_bool = verify_ssl == OpenSSL::SSL::VERIFY_PEER
-    
+
     # Create configuration object
     config = NutanixVmm::Configuration.new do |config|
       config.host = "#{hostname}:#{port}"
@@ -159,7 +163,7 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
       config.password = password
       config.base_path = "/api"
     end
-    
+
     # Create API client with that configuration
     NutanixVmm::ApiClient.new(config)
   rescue => err
