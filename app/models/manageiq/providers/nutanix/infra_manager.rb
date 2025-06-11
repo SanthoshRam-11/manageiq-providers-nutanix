@@ -87,7 +87,7 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
     api_client = raw_connect(hostname, port, username, password, verify_ssl)
 
     # Test connection
-    NutanixVmm::VmApi.new(api_client).get_vms
+    ConnectionManager.new(api_client).get_vms
   rescue => err
     raise MiqException::MiqInvalidCredentialsError, err.message
   end
@@ -95,7 +95,7 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
   def verify_credentials(auth_type = nil, options = {})
     begin
       api_client = connect
-      NutanixVmm::VmApi.new(api_client).get_vms
+      ConnectionManager.new(api_client).get_vms
       true
     rescue => err
       raise MiqException::MiqInvalidCredentialsError, err.message
