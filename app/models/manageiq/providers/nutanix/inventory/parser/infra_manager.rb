@@ -116,25 +116,15 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_datastores
     collector.datastores.each do |ds|
-      name        = ds.try(:target_name) || ds.try(:name) || "unknown"
-      ems_ref     = ds.try(:ext_id)
-      total_space = nil  # You can update this if you later find a way to calculate size
-      free_space  = nil  # Nutanix Volumes API doesn't provide this directly
-
-      next if ems_ref.nil?
-
       persister.storages.build(
-        :name        => name,
-        :store_type  => 'NutanixVolumeGroup',
-        :total_space => total_space,
-        :free_space  => free_space,
-        :ems_ref     => ems_ref,
-        :location    => "VolumeGroup:#{name}",
-        :ems_id      => persister.manager.id
+        name: ds[:name],
+        store_type: ds[:store_type],
+        total_space: ds[:total_space],
+        free_space: ds[:free_space] || 0,
+        ems_ref: ds[:ems_ref]
       )
     end
   end
-
 
   def parse_templates
     collector.templates.each do |template|
