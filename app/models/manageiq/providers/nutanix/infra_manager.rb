@@ -1,5 +1,15 @@
 class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraManager
+  default_value_for :vendor, "nutanix"
+  require_nested :MetricsCapture
+  require_nested :MetricsCollectorWorker
+  require_nested :Refresher
+  require_nested :RefreshWorker
+  require_nested :Vm
   supports :create
+
+  def vendor
+    "nutanix"
+  end
 
   def self.params_for_create
     {
@@ -80,9 +90,9 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
     
     hostname = endpoint&.dig("hostname")
     port = endpoint&.dig("port")
-    verify_ssl = endpoint&.dig("verify_ssl")
+    verify_ssl = endpoint&.dig("verify_ssl") || OpenSSL::SSL::VERIFY_NONE
     username = authentication&.dig("userid")
-    password = authentication&.dig("password")
+    password = ManageIQ::Password.try_decrypt(authentication&.dig("password"))
     
     !!raw_connect(hostname, port, username, password, verify_ssl)
   rescue => err
@@ -104,34 +114,69 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
     auth_type = options[:auth_type] || 'default'
     username, password = auth_user_pwd(auth_type)
     
-    self.class.raw_connect(
+    api_client = self.class.raw_connect(
       default_endpoint.hostname,
       default_endpoint.port,
       username,
       password,
       default_endpoint.verify_ssl
     )
+
+    # Return the appropriate service client
+    case options[:service]
+    when "Infra"
+      ConnectionManager.new(api_client) # Return connection manager for infra services
+    else
+      api_client # Default to base API client
+    end
   end
 
-  def self.raw_connect(hostname, port, username, password, verify_ssl = OpenSSL::SSL::VERIFY_NONE)
+  def self.validate_authentication_args(params)
+    # return args to be used in raw_connect
+    return [params[:default_userid], ManageIQ::Password.encrypt(params[:default_password])]
+  end
+
+  def self.hostname_required?
+    # TODO: ExtManagementSystem is validating this
+    false
+  end
+
+  def parent_manager
+    nil
+  end
+
+  def self.raw_connect(hostname, port, username, password, verify_ssl)
     require "nutanix_vmm"
+
+    if Rails.env.development? || Rails.env.test?
+      verify_ssl = OpenSSL::SSL::VERIFY_NONE
+    end
+
+    verify_ssl_bool = verify_ssl == OpenSSL::SSL::VERIFY_PEER
     
     # Create configuration object
     config = NutanixVmm::Configuration.new do |config|
       config.host = "#{hostname}:#{port}"
       config.scheme = "https"
-      config.verify_ssl = false
-      config.verify_ssl_host = false
+      config.verify_ssl = verify_ssl_bool
+      config.verify_ssl_host = verify_ssl_bool
       config.debugging = true
       config.username = username
       config.password = password
+      config.base_path = "/api"
     end
     
     # Create API client with that configuration
     api_client = NutanixVmm::ApiClient.new(config)
     
     # Return a ConnectionManager with the API clients needed
-    ConnectionManager.new(api_client)
+    connection_manager = ConnectionManager.new(api_client)
+
+    # Test connection
+    connection_manager.get_vms
+    api_client
+  rescue => err
+    raise MiqException::MiqInvalidCredentialsError, "Authentication failed: #{err.message}"
   end
 
   def self.ems_type
