@@ -10,7 +10,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   private
 
   def parse_clusters
-    collector.clusters.each_value do |cluster|
+    collector.clusters.each do |cluster|
       persister.clusters.build(
         :ems_ref => cluster.ext_id,
         :name    => cluster.name,
@@ -20,7 +20,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   end
 
   def parse_hosts
-    collector.hosts.each_value do |host|
+    collector.hosts.each do |host|
       ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
 
       # In parse_hosts_and_clusters method
