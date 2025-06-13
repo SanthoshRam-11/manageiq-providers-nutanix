@@ -1,6 +1,7 @@
 class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::Providers::Nutanix::Inventory::Parser
   def parse
-    parse_hosts_and_clusters
+    parse_hosts
+    parse_clusters
     parse_templates
     collector.vms.each { |vm| parse_vm(vm) }
     parse_datastores
@@ -8,24 +9,25 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   private
 
-  def parse_hosts_and_clusters
-    # Clusters must be parsed first
+  def parse_clusters
     collector.clusters.each_value do |cluster|
       persister.clusters.build(
-        :ems_ref => cluster[:ems_ref],
-        :name    => cluster[:name],  # Now using real cluster names
-        :ems_id  => persister.manager.id,
-        :uid_ems => cluster[:ems_ref]
+        :ems_ref => cluster.ext_id,
+        :name    => cluster.name,
+        :uid_ems => cluster.ext_id
       )
     end
+  end
 
-    # Hosts
+  def parse_hosts
     collector.hosts.each_value do |host|
+      ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
+
       # In parse_hosts_and_clusters method
       persister.hosts.build(
-        :ems_ref     => host[:ems_ref],
-        :name        => host[:name],
-        :ems_cluster => persister.clusters.lazy_find(host[:cluster_id])
+        :ems_ref     => host.ext_id,
+        :name        => host.host_name,
+        :ems_cluster => ems_cluster
       )
     end
   end
@@ -117,11 +119,10 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse_datastores
     collector.datastores.each do |ds|
       persister.storages.build(
-        name: ds[:name],
-        store_type: ds[:store_type],
-        total_space: ds[:total_space],
-        free_space: ds[:free_space] || 0,
-        ems_ref: ds[:ems_ref]
+        :ems_ref     => ds.container_ext_id,
+        :name        => ds.name,
+        :store_type  => "NutanixVolume",
+        :total_space => ds.max_capacity_bytes
       )
     end
   end
