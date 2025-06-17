@@ -71,7 +71,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Collector::TargetCollection < Man
         add_target!(:hosts, t.ems_ref)
       when Storage
         add_target(:storages, t.ems_ref)
-      when Cluster
+      when EmsCluster
         add_target(:clusters, t.ems_ref)
       end
     end
