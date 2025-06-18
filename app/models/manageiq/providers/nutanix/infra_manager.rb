@@ -1,6 +1,6 @@
 class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraManager
   supports :create
-
+  validate :hostname_uniqueness_valid?
   def allow_targeted_refresh?
     true
   end
@@ -76,6 +76,20 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
         }
       ]
     }
+  end
+
+  def hostname_uniqueness_valid?
+    return unless hostname.present?
+
+    existing_providers =
+      self.class
+          .joins(:endpoints)
+          .where.not(:id => id)
+          .where("LOWER(endpoints.hostname) = ?", hostname.downcase)
+
+    if existing_providers.any?
+      errors.add(:hostname, "has already been taken")
+    end
   end
 
   def self.verify_credentials(args)
