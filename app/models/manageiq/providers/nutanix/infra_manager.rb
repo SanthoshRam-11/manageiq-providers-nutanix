@@ -1,6 +1,9 @@
 class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraManager
   supports :create
+<<<<<<< HEAD
   supports :management_console
+=======
+>>>>>>> b9c0271 (Added hostname validation for nutanix provider)
   validate :hostname_uniqueness_valid?
   def allow_targeted_refresh?
     true
