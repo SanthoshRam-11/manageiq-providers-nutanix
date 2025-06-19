@@ -1,7 +1,4 @@
 class ManageIQ::Providers::Nutanix::Inventory::Collector::InfraManager < ManageIQ::Providers::Nutanix::Inventory::Collector
-  require "nutanix_vmm"
-  require "nutanix_clustermgmt"
-
   def clusters
     @clusters ||= begin
       clusters_api = NutanixClustermgmt::ClustersApi.new(cluster_mgmt_connection)
