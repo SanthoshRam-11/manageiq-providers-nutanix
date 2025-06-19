@@ -24,10 +24,18 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
       ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
 
       # In parse_hosts_and_clusters method
-      persister.hosts.build(
+      persister_host = persister.hosts.build(
         :ems_ref     => host.ext_id,
         :name        => host.host_name,
         :ems_cluster => ems_cluster
+      )
+
+      memory_mb = host.memory_size_bytes / 1.megabyte if host.memory_size_bytes
+      persister.host_hardwares.build(
+        :host            => persister_host,
+        :memory_mb       => memory_mb,
+        :cpu_sockets     => host.number_of_cpu_sockets,
+        :cpu_total_cores => host.number_of_cpu_cores
       )
     end
   end

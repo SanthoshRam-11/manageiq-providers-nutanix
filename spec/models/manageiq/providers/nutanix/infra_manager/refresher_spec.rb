@@ -24,14 +24,14 @@ describe ManageIQ::Providers::Nutanix::InfraManager::Refresher do
       expect(Vm.count).to eq(26)
       expect(MiqTemplate.count).to eq(1)
       expect(Host.count).to eq(4)
-      expect(EmsCluster.count).to eq(1)
+      expect(EmsCluster.count).to eq(2)
     end
 
     def assert_ems_counts
       expect(ems.vms.count).to eq(26)
       expect(ems.miq_templates.count).to eq(1)
       expect(ems.hosts.count).to eq(4)
-      expect(ems.ems_clusters.count).to eq(1)
+      expect(ems.ems_clusters.count).to eq(2)
     end
 
     def assert_specific_vm
@@ -76,16 +76,22 @@ describe ManageIQ::Providers::Nutanix::InfraManager::Refresher do
     def assert_specific_host
       host = ems.hosts.find_by(:ems_ref => "ffb769ef-9599-49f7-8608-4b5d10d076e7")
       expect(host).to have_attributes(
-        :name        => "Host-ffb769ef-9599-49f7-8608-4b5d10d076e7",
+        :name        => "NTNX-20SM6K300373-C",
         :ems_ref     => "ffb769ef-9599-49f7-8608-4b5d10d076e7",
         :type        => "ManageIQ::Providers::Nutanix::InfraManager::Host",
         :ems_cluster => ems.ems_clusters.find_by(:ems_ref => "000633d6-6577-7490-6614-ac1f6b3d8797")
+      )
+      expect(host.hardware).to have_attributes(
+        :memory_mb       => 772_153,
+        :cpu_sockets     => 2,
+        :cpu_total_cores => 40
       )
     end
 
     def assert_specific_cluster
       cluster = ems.ems_clusters.find_by(:ems_ref => "000633d6-6577-7490-6614-ac1f6b3d8797")
       expect(cluster).to have_attributes(
+        :name    => "Acme",
         :ems_ref => "000633d6-6577-7490-6614-ac1f6b3d8797",
         :uid_ems => "000633d6-6577-7490-6614-ac1f6b3d8797",
         :type    => "ManageIQ::Providers::Nutanix::InfraManager::Cluster"
