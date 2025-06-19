@@ -1,6 +1,7 @@
 class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::Providers::Nutanix::Inventory::Parser
   def parse
-    parse_hosts_and_clusters
+    parse_hosts
+    parse_clusters
     parse_templates
     collector.vms.each { |vm| parse_vm(vm) }
     parse_datastores
@@ -8,24 +9,33 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   private
 
-  def parse_hosts_and_clusters
-    # Clusters must be parsed first
-    collector.clusters.each_value do |cluster|
+  def parse_clusters
+    collector.clusters.each do |cluster|
       persister.clusters.build(
-        :ems_ref => cluster[:ems_ref],
-        :name    => cluster[:name],  # Now using real cluster names
-        :ems_id  => persister.manager.id,
-        :uid_ems => cluster[:ems_ref]
+        :ems_ref => cluster.ext_id,
+        :name    => cluster.name,
+        :uid_ems => cluster.ext_id
       )
     end
+  end
 
-    # Hosts
-    collector.hosts.each_value do |host|
+  def parse_hosts
+    collector.hosts.each do |host|
+      ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
+
       # In parse_hosts_and_clusters method
-      persister.hosts.build(
-        :ems_ref     => host[:ems_ref],
-        :name        => host[:name],
-        :ems_cluster => persister.clusters.lazy_find(host[:cluster_id])
+      persister_host = persister.hosts.build(
+        :ems_ref     => host.ext_id,
+        :name        => host.host_name,
+        :ems_cluster => ems_cluster
+      )
+
+      memory_mb = host.memory_size_bytes / 1.megabyte if host.memory_size_bytes
+      persister.host_hardwares.build(
+        :host            => persister_host,
+        :memory_mb       => memory_mb,
+        :cpu_sockets     => host.number_of_cpu_sockets,
+        :cpu_total_cores => host.number_of_cpu_cores
       )
     end
   end
@@ -116,17 +126,11 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_datastores
     collector.datastores.each do |ds|
-      name        = ds.name rescue "unknown"
-      ems_ref     = ds.ext_id || ds.uuid rescue nil
-      total_space = ds.resources&.map(&:size_bytes)&.sum rescue nil
-      free_space  = nil  # Nutanix Volume Groups may not expose this directly
-
       persister.storages.build(
-        :name        => name,
-        :store_type  => 'NutanixVolume',
-        :total_space => total_space,
-        :free_space  => free_space,
-        :ems_ref     => ems_ref
+        :ems_ref     => ds.container_ext_id,
+        :name        => ds.name,
+        :store_type  => "NutanixVolume",
+        :total_space => ds.max_capacity_bytes
       )
     end
   end
