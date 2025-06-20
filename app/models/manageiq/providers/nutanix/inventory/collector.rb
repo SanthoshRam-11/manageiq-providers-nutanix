@@ -1,10 +1,15 @@
 class ManageIQ::Providers::Nutanix::Inventory::Collector < ManageIQ::Providers::Inventory::Collector
+  def initialize(*)
+    require "nutanix_clustermgmt"
+    require "nutanix_vmm"
+
+    super
+  end
+
   private
 
   def cluster_mgmt_connection
     @cluster_mgmt_connection ||= begin
-      require "nutanix_clustermgmt"
-
       verify_ssl_bool = manager.default_endpoint.verify_ssl == OpenSSL::SSL::VERIFY_PEER
 
       config = NutanixClustermgmt::Configuration.new do |c|
@@ -23,8 +28,6 @@ class ManageIQ::Providers::Nutanix::Inventory::Collector < ManageIQ::Providers::
 
   def vmm_connection
     @vmm_connection ||= begin
-      require "nutanix_vmm"
-
       verify_ssl_bool = manager.default_endpoint.verify_ssl == OpenSSL::SSL::VERIFY_PEER
 
       # Create configuration object
