@@ -1,14 +1,7 @@
 class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::InfraManager::Vm
   include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
   # Completely custom logic - no host/storage check
-  supports :start do
-    unsupported_reason_add(:start, _('The VM is already powered on')) if raw_power_state.to_s.downcase == 'on'
-  end
-
-  supports :stop do
-    unsupported_reason_add(:stop, _('The VM is already powered off')) if raw_power_state.to_s.downcase == 'off'
-  end
-
+  # Clear inherited support checks
   POWER_STATES = {
     "ON"  => "on",
     "OFF" => "off"

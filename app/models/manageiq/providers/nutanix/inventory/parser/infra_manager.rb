@@ -21,11 +21,12 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_hosts
     collector.hosts.each do |host|
+      host_ref = host.ext_id.to_s.downcase
+
       ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
 
-      # In parse_hosts_and_clusters method
       persister.hosts.build(
-        :ems_ref     => host.ext_id,
+        :ems_ref     => host_ref,
         :name        => host.host_name,
         :ems_cluster => ems_cluster
       )
@@ -35,6 +36,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse_vm(vm)
     # Get OS info from VM description (or other available fields)
     os_info = vm.description.to_s.match(/OS: (.+)/)&.captures&.first || 'unknown'
+    host_ref = vm.host&.ext_id&.to_s&.downcase
 
     # Main VM attributes
     vm_obj = persister.vms.build(
@@ -45,7 +47,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
       :location         => vm.cluster&.ext_id || "unknown",
       :vendor           => "nutanix",
       :raw_power_state  => vm.power_state,
-      :host             => persister.hosts.lazy_find(vm.host&.ext_id),
+      :host             => persister.hosts.lazy_find(host_ref),
       :ems_cluster      => persister.clusters.lazy_find(vm.cluster&.ext_id),
       :ems_id           => persister.manager.id,
       :connection_state => "connected",
