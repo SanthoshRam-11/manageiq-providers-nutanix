@@ -30,7 +30,13 @@ class ManageIQ::Providers::Nutanix::Inventory::Collector::InfraManager < ManageI
   def vms
     @vms ||= begin
       vms_api = NutanixVmm::VmApi.new(vmm_connection)
-      vms_api.list_vms_0.data
+      vms_summary = vms_api.list_vms_0.data
+
+      # Fetch full details per VM (one by one)
+      vms_summary.map do |summary|
+        uuid = summary.ext_id || summary.uuid || summary.id
+        vms_api.get_vm_by_id_0(uuid).data  # this returns a full NutanixVmm::VmmV40AhvConfigVm
+      end
     end
   end
 end

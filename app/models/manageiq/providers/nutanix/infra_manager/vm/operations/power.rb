@@ -1,22 +1,12 @@
 module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
   extend ActiveSupport::Concern
-
-  # included do
-  #   # Existing shelve operations
-  #   supports :start
-  #   supports :shelve do
-  #     if %w[on off suspended paused].exclude?(current_state)
-  #       _("The VM can't be shelved, current state has to be powered on, off, suspended or paused")
-  #     end
-  #   end
-
-  #   supports :shelve_offload do
-  #     if current_state != "shelved"
-  #       _("The VM can't be shelved offload, current state has to be shelved")
-  #     end
-  #   end
-  # end
-
+  included do
+    supports :start do
+      if raw_power_state == 'ON'
+        unsupported_reason_add(:start, _('The VM is already powered on'))
+      end
+    end
+  end
 
   def start
     raw_start

@@ -1,33 +1,15 @@
 class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::InfraManager::Vm
   include SupportsFeatureMixin
   include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
-  include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::RemoteConsole
 
-  # Override host/storage restriction
-  def supports_start_without_host_storage?
-    true
-  end
-
-  def supports_stop_without_host_storage?
-    true
-  end
+  # Better power state mapping
+  POWER_STATES = {
+    "ON"  => "on",
+    "OFF" => "off",
+  }.freeze
 
   supports :start do
     unsupported_reason_add(:start, _('The VM is already powered on')) if raw_power_state == 'ON'
-  end
-
-  supports :webmks do
-    unsupported_reason_add(:webmks, _("VM is not running")) unless raw_power_state == "on"
-  end
-
-  supports :start
-  POWER_STATES = {
-    "ON"  => "on",
-    "OFF" => "off"
-  }.freeze
-
-  def validate_start
-    {:available => true, :message => nil}
   end
 
   def self.calculate_power_state(raw_power_state)
