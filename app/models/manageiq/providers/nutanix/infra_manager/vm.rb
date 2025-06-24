@@ -1,7 +1,7 @@
 class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::InfraManager::Vm
   include SupportsFeatureMixin
   include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
-
+  include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::RemoteConsole
   # Better power state mapping
   POWER_STATES = {
     "ON"  => "on",
