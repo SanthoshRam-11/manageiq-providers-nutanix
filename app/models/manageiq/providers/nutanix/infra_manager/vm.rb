@@ -12,6 +12,10 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
     unsupported_reason_add(:start, _('The VM is already powered on')) if raw_power_state == 'ON'
   end
 
+  def has_required_host?
+    true
+  end
+
   def self.calculate_power_state(raw_power_state)
     POWER_STATES[raw_power_state] || super
   end
