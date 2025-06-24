@@ -2,11 +2,17 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
   extend ActiveSupport::Concern
   included do
     supports :start do
-      unsupported_reason_add(:start, _("The VM is not connected to a Host")) if host.nil?
+      # Allow start even without host
+      if raw_power_state == 'on'
+        unsupported_reason_add(:start, 'VM is already powered on')
+      end
     end
 
     supports :stop do
-      unsupported_reason_add(:stop, _("The VM is not connected to a Host")) if host.nil?
+      # Allow stop even without host
+      if raw_power_state == 'off'
+        unsupported_reason_add(:stop, 'VM is already powered off')
+      end
     end
   end
 
@@ -29,7 +35,13 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
   def start
     raw_start
   rescue => err
-    raise MiqException::MiqVmError, _("Start operation failed: %{message}") % {:message => err.message}
+    raise MiqException::MiqVmError, "Start failed: #{err.message}"
+  end
+
+  def stop
+    raw_stop
+  rescue => err
+    raise MiqException::MiqVmError, "Stop failed: #{err.message}"
   end
 
   def fetch_vm_with_headers
@@ -53,7 +65,7 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
       api.power_on_vm_0(ems_ref, etag, request_id)
     end
 
-    update!(:raw_power_state => "OFF")
+    update!(:raw_power_state => "ON")
   end
 
 
@@ -69,7 +81,7 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
       api.power_off_vm_0(ems_ref, etag, request_id)
     end
 
-    update!(:raw_power_state => "ON")
+    update!(:raw_power_state => "OFF")
   end
 
   def raw_pause
