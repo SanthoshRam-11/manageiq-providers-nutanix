@@ -2,9 +2,9 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse
     parse_hosts
     parse_clusters
+    parse_datastores
     parse_templates
     collector.vms.each { |vm| parse_vm(vm) }
-    parse_datastores
   end
 
   private
@@ -21,12 +21,11 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_hosts
     collector.hosts.each do |host|
-      host_ref = host.ext_id.to_s.downcase
-
       ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
 
+      # In parse_hosts_and_clusters method
       persister.hosts.build(
-        :ems_ref     => host_ref,
+        :ems_ref     => host.ext_id,
         :name        => host.host_name,
         :ems_cluster => ems_cluster
       )
@@ -35,19 +34,18 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_vm(vm)
     # Get OS info from VM description (or other available fields)
-    os_info = if vm.respond_to?(:guest_os) && vm.guest_os.present?
-              vm.guest_os
-            elsif vm.respond_to?(:machine_type) && vm.machine_type.present?
-              vm.machine_type
-            else
-              vm.description.to_s.match(/OS:\s*(.+)/i)&.captures&.first || 'unknown'
-            end
-    host_ref = vm.host&.ext_id&.to_s
-    primary_storage = if vm.respond_to?(:storage_config) && vm.storage_config
-      container_ref = vm.storage_config.storage_container_reference
-      container_uuid = container_ref.ext_id if container_ref
-      persister.storages.lazy_find(container_uuid) if container_uuid
+    os_info = vm.description.to_s.match(/OS: (.+)/)&.captures&.first || 'unknown'
+
+    # Get primary storage from VM config
+    primary_storage_uuid = vm.storage_config&.storage_container_reference&.uuid rescue nil
+    primary_storage = persister.storages.lazy_find(primary_storage_uuid) if primary_storage_uuid
+
+    # If still nil, use first available storage
+    unless primary_storage
+      first_storage = persister.storages.data.first
+      primary_storage = first_storage.ems_ref if first_storage
     end
+
     # Main VM attributes
     vm_obj = persister.vms.build(
       :ems_ref          => vm.ext_id,
@@ -57,12 +55,12 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
       :location         => vm.cluster&.ext_id || "unknown",
       :vendor           => "nutanix",
       :raw_power_state  => vm.power_state,
-      :host             => persister.hosts.lazy_find(host_ref),
+      :host             => persister.hosts.lazy_find(vm.host&.ext_id),
       :ems_cluster      => persister.clusters.lazy_find(vm.cluster&.ext_id),
       :ems_id           => persister.manager.id,
       :connection_state => "connected",
       :boot_time        => vm.create_time,
-      :storage => primary_storage 
+      :storage          => primary_storage
     )
 
     hardware = persister.hardwares.build(
@@ -81,34 +79,22 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_disks(vm, hardware)
     vm.disks.each do |disk|
-      # FIXED: Get disk size from backing_info with safe access
-      size_bytes = disk.backing_info&.disk_size_bytes rescue nil
+      # First try to get container UUID from disk backing
+      container_uuid = disk.backing_info&.storage_container_uuid rescue nil
       
-      # If still nil, try alternative methods
-      if size_bytes.nil?
-        if disk.respond_to?(:disk_size_mib)
-          # Convert MiB to bytes
-          size_bytes = disk.disk_size_mib * 1.megabyte if disk.disk_size_mib
-        elsif disk.respond_to?(:disk_size_bytes)
-          size_bytes = disk.disk_size_bytes
-        end
+      # Then try to get from VM's storage config
+      if container_uuid.nil?
+        container_uuid = vm.storage_config&.storage_container_reference&.uuid rescue nil
+      end
+      
+      # Finally, fall back to the first storage container if available
+      if container_uuid.nil? && persister.storages.data.any?
+        container_uuid = persister.storages.data.first.ems_ref
       end
 
-      # Get storage container with fallback and logging
-      container_uuid = nil
-      if disk.backing_info
-        begin
-          # Try to access storage container through various methods
-          container_ref = disk.backing_info.storage_container_reference rescue nil
-          container_ref ||= disk.backing_info.storage_container rescue nil
-          
-          container_uuid = container_ref.ext_id if container_ref&.respond_to?(:ext_id)
-        rescue => e
-          _log.error("Error accessing storage container for disk #{disk.ext_id}: #{e.message}")
-        end
-      end
-
-      _log.debug("Disk #{disk.ext_id} container: #{container_uuid || 'none'}")
+      size_bytes = disk.disk_size_bytes || disk.backing_info&.disk_size_bytes rescue nil
+      
+      storage = persister.storages.lazy_find(container_uuid) if container_uuid
 
       persister.disks.build(
         :hardware    => hardware,
@@ -117,45 +103,11 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
         :size        => size_bytes,
         :location    => disk.disk_address&.index.to_s,
         :filename    => disk.ext_id,
-        :storage     => persister.storages.lazy_find(container_uuid)
+        :storage     => storage
       )
     end
-
-    # CD-ROM devices
-    if vm.respond_to?(:cdRoms) && vm.cdRoms
-      vm.cdRoms.each do |cdrom|
-        # FIXED: Get size from backing_info with safe access
-        size_bytes = cdrom.backing_info&.disk_size_bytes rescue nil
-        
-        # If still nil, try alternative methods
-        if size_bytes.nil?
-          if cdrom.respond_to?(:disk_size_mib)
-            # Convert MiB to bytes
-            size_bytes = cdrom.disk_size_mib * 1.megabyte if cdrom.disk_size_mib
-          elsif cdrom.respond_to?(:disk_size_bytes)
-            size_bytes = cdrom.disk_size_bytes
-          end
-        end
-
-        container_uuid = if cdrom.backing_info
-          container_ref = cdrom.backing_info.try(:storage_container_reference) ||
-                          cdrom.backing_info.try(:storage_container)
-          
-          container_ref.ext_id if container_ref&.respond_to?(:ext_id)
-        end
-        
-        persister.disks.build(
-          :hardware    => hardware,
-          :device_name => "CD-ROM #{cdrom.disk_address&.index}",
-          :device_type => 'cdrom',
-          :size        => size_bytes,
-          :location    => cdrom.disk_address&.index.to_s,
-          :filename    => cdrom.ext_id,
-          :storage     => persister.storages.lazy_find(container_uuid)
-        )
-      end
-    end
   end
+
 
   def parse_nics(vm, hardware)
     vm.nics.each_with_index do |nic, index|
@@ -192,18 +144,16 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   end
 
   def parse_datastores
-    puts "📦 Parsing datastores..."
     collector.datastores.each do |ds|
-      puts "📂 Registering storage: #{ds.name} | ems_ref: #{ds.container_ext_id}"
+      container_uuid = ds.ext_id
       persister.storages.build(
-        :ems_ref     => ds.container_ext_id,
+        :ems_ref     => container_uuid,  # Use actual container UUID
         :name        => ds.name,
         :store_type  => "NutanixVolume",
         :total_space => ds.max_capacity_bytes
       )
     end
   end
-
 
   def parse_templates
     collector.templates.each do |template|
