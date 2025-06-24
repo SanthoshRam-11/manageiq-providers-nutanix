@@ -2,86 +2,46 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
   extend ActiveSupport::Concern
   included do
     supports :start do
-      # Allow start even without host
-      if raw_power_state == 'on'
-        unsupported_reason_add(:start, 'VM is already powered on')
-      end
-    end
-
-    supports :stop do
-      # Allow stop even without host
-      if raw_power_state == 'off'
-        unsupported_reason_add(:stop, 'VM is already powered off')
+      if raw_power_state == 'ON'
+        unsupported_reason_add(:start, _('The VM is already powered on'))
       end
     end
   end
-
-  # included do
-  #   # Existing shelve operations
-  #   supports :start
-  #   supports :shelve do
-  #     if %w[on off suspended paused].exclude?(current_state)
-  #       _("The VM can't be shelved, current state has to be powered on, off, suspended or paused")
-  #     end
-  #   end
-
-  #   supports :shelve_offload do
-  #     if current_state != "shelved"
-  #       _("The VM can't be shelved offload, current state has to be shelved")
-  #     end
-  #   end
-  # end
 
   def start
     raw_start
   rescue => err
-    raise MiqException::MiqVmError, "Start failed: #{err.message}"
+    raise MiqException::MiqVmError, _("Start operation failed: %{message}") % {:message => err.message}
   end
-
-  def stop
-    raw_stop
-  rescue => err
-    raise MiqException::MiqVmError, "Stop failed: #{err.message}"
-  end
-
-  def fetch_vm_with_headers
-    with_provider_connection(:service => :VMM) do |connection|
-      api = ::NutanixVmm::VmApi.new(connection)
-      vm_data, _, headers = api.get_vm_by_id_0_with_http_info(ems_ref)
-      [vm_data, headers]
-    end
-  end
-
 
   def raw_start
-    vm_data, headers = fetch_vm_with_headers
-    etag = headers['etag'] || headers['ETag']
-    raise "ETag missing from VM GET response" if etag.nil?
-
-    request_id = SecureRandom.uuid
-
-    with_provider_connection(:service => :VMM) do |connection|
+    with_provider_connection do |connection|
       api = ::NutanixVmm::VmApi.new(connection)
+
+      _, _, headers = api.get_vm_by_id_0_with_http_info(ems_ref)
+      etag = headers['etag'] || headers['ETag']
+      raise "ETag missing from VM GET response" if etag.nil?
+
+      request_id = SecureRandom.uuid
       api.power_on_vm_0(ems_ref, etag, request_id)
     end
 
-    update!(:raw_power_state => "ON")
+    update!(:raw_power_state => "OFF")
   end
 
-
   def raw_stop
-    vm_data, headers = fetch_vm_with_headers
-    etag = headers['etag'] || headers['ETag']
-    raise "ETag missing from VM GET response" if etag.nil?
-
-    request_id = SecureRandom.uuid
-
-    with_provider_connection(:service => :VMM) do |connection|
+    with_provider_connection do |connection|
       api = ::NutanixVmm::VmApi.new(connection)
+
+      _, _, headers = api.get_vm_by_id_0_with_http_info(ems_ref)
+      etag = headers['etag'] || headers['ETag']
+      raise "ETag missing from VM GET response" if etag.nil?
+
+      request_id = SecureRandom.uuid
       api.power_off_vm_0(ems_ref, etag, request_id)
     end
 
-    update!(:raw_power_state => "OFF")
+    update!(:raw_power_state => "ON")
   end
 
   def raw_pause
@@ -94,9 +54,8 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
 
   private
 
-  def with_provider_connection(options = {})
-    connection = ext_management_system.connect(**options)
+  def with_provider_connection
+    connection = ext_management_system.connect(:service => :VMM)
     yield(connection)
   end
-
 end

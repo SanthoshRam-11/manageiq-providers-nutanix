@@ -2,28 +2,14 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
   include SupportsFeatureMixin
   include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
 
-  # Completely custom logic - no host/storage check
-  # Clear inherited support checks
   # Better power state mapping
   POWER_STATES = {
     "ON"  => "on",
-    "on"  => "on",    # Handle lowercase
     "OFF" => "off",
-    "off" => "off"    # Handle lowercase
   }.freeze
 
-  def validate_start
-    # Return nil means valid, else return error string
-    nil
-  end
-
-  def validate_stop
-    nil
-  end
-  def validate_power_operation
-    return _("The VM is not connected to a Host") if host.nil?
-    return _("The VM does not have a Storage") if storage.nil?
-    nil
+  supports :start do
+    unsupported_reason_add(:start, _('The VM is already powered on')) if raw_power_state.to_s.downcase == 'on'
   end
 
   def self.calculate_power_state(raw_power_state)
