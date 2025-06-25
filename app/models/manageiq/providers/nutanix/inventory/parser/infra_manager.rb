@@ -2,9 +2,9 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse
     parse_hosts
     parse_clusters
-    parse_datastores
     parse_templates
     collector.vms.each { |vm| parse_vm(vm) }
+    parse_datastores
   end
 
   private
@@ -145,9 +145,9 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_datastores
     collector.datastores.each do |ds|
-      container_uuid = ds.ext_id
+      #container_uuid = ds.ext_id
       persister.storages.build(
-        :ems_ref     => container_uuid,  # Use actual container UUID
+        :ems_ref     => ds.container_ext_id,  # Use actual container UUID
         :name        => ds.name,
         :store_type  => "NutanixVolume",
         :total_space => ds.max_capacity_bytes
