@@ -1,8 +1,20 @@
 class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::InfraManager::Vm
+  include SupportsFeatureMixin
+  include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
+  include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::RemoteConsole
+  # Better power state mapping
   POWER_STATES = {
     "ON"  => "on",
-    "OFF" => "off"
+    "OFF" => "off",
   }.freeze
+
+  supports :start do
+    unsupported_reason_add(:start, _('The VM is already powered on')) if raw_power_state == 'ON'
+  end
+
+  def has_required_host?
+    true
+  end
 
   def self.calculate_power_state(raw_power_state)
     POWER_STATES[raw_power_state] || super
@@ -25,18 +37,5 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
 
   def ip_addresses
     hardware.nets.map(&:ipaddress).compact
-  end
-
-  def raw_stop
-    conn = ext_management_system.connect(:service => :VMM)
-    api = ::NutanixVmm::VmApi.new(conn)
-
-    # Fetch the ETag needed for the request
-    _, _, headers = api.get_vm_by_id_0_with_http_info(ems_ref)
-    etag = headers['etag'] || headers['ETag']
-    request_id = SecureRandom.uuid
-
-    # Send the power-off request
-    api.power_off_vm_0(ems_ref, etag, request_id)
   end
 end

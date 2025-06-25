@@ -20,15 +20,33 @@ describe ManageIQ::Providers::Nutanix::InfraManager::Refresher do
       end
     end
 
+    context "targeted refresh" do
+      context "vm" do
+        before        { with_vcr { EmsRefresh.refresh(ems) } }
+        let(:targets) { [ems.vms.first] }
+
+        it "performs a targeted refresh" do
+          with_vcr("targeted_vm") { subject.refresh }
+
+          assert_counts
+          assert_ems_counts
+          assert_specific_vm
+          assert_specific_template
+          assert_specific_host
+          assert_specific_cluster
+        end
+      end
+    end
+
     def assert_counts
-      expect(Vm.count).to eq(26)
+      expect(Vm.count).to eq(35)
       expect(MiqTemplate.count).to eq(1)
       expect(Host.count).to eq(4)
       expect(EmsCluster.count).to eq(2)
     end
 
     def assert_ems_counts
-      expect(ems.vms.count).to eq(26)
+      expect(ems.vms.count).to eq(35)
       expect(ems.miq_templates.count).to eq(1)
       expect(ems.hosts.count).to eq(4)
       expect(ems.ems_clusters.count).to eq(2)
@@ -37,7 +55,7 @@ describe ManageIQ::Providers::Nutanix::InfraManager::Refresher do
     def assert_specific_vm
       vm = ems.vms.find_by(:ems_ref => "12e3f98c-1b75-408c-93eb-acab4ce810da")
       expect(vm).to have_attributes(
-        :name        => "Acme-VM1",
+        :name => "XaasIO-VM1",
         :type        => "ManageIQ::Providers::Nutanix::InfraManager::Vm",
         :ems_ref     => "12e3f98c-1b75-408c-93eb-acab4ce810da",
         :uid_ems     => "12e3f98c-1b75-408c-93eb-acab4ce810da",
@@ -64,7 +82,7 @@ describe ManageIQ::Providers::Nutanix::InfraManager::Refresher do
     def assert_specific_template
       template = ems.miq_templates.find_by(:ems_ref => "63e3e039-50e0-442b-8a12-8ebd6df818f3")
       expect(template).to have_attributes(
-        :name            => "Acme-Ubuntuu-22",
+        :name            => "XaasIO-Ubuntuu-22",
         :type            => "ManageIQ::Providers::Nutanix::InfraManager::Template",
         :ems_ref         => "63e3e039-50e0-442b-8a12-8ebd6df818f3",
         :uid_ems         => "63e3e039-50e0-442b-8a12-8ebd6df818f3",

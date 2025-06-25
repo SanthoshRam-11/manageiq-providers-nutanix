@@ -2,9 +2,9 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse
     parse_hosts
     parse_clusters
+    parse_datastores
     parse_templates
     collector.vms.each { |vm| parse_vm(vm) }
-    parse_datastores
   end
 
   private
@@ -24,18 +24,10 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
       ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
 
       # In parse_hosts_and_clusters method
-      persister_host = persister.hosts.build(
+      persister.hosts.build(
         :ems_ref     => host.ext_id,
         :name        => host.host_name,
         :ems_cluster => ems_cluster
-      )
-
-      memory_mb = host.memory_size_bytes / 1.megabyte if host.memory_size_bytes
-      persister.host_hardwares.build(
-        :host            => persister_host,
-        :memory_mb       => memory_mb,
-        :cpu_sockets     => host.number_of_cpu_sockets,
-        :cpu_total_cores => host.number_of_cpu_cores
       )
     end
   end
@@ -43,6 +35,16 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   def parse_vm(vm)
     # Get OS info from VM description (or other available fields)
     os_info = vm.description.to_s.match(/OS: (.+)/)&.captures&.first || 'unknown'
+
+    # Get primary storage from VM config
+    primary_storage_uuid = vm.storage_config&.storage_container_reference&.uuid rescue nil
+    primary_storage = persister.storages.lazy_find(primary_storage_uuid) if primary_storage_uuid
+
+    # If still nil, use first available storage
+    unless primary_storage
+      first_storage = persister.storages.data.first
+      primary_storage = first_storage.ems_ref if first_storage
+    end
 
     # Main VM attributes
     vm_obj = persister.vms.build(
@@ -57,7 +59,8 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
       :ems_cluster      => persister.clusters.lazy_find(vm.cluster&.ext_id),
       :ems_id           => persister.manager.id,
       :connection_state => "connected",
-      :boot_time        => vm.create_time
+      :boot_time        => vm.create_time,
+      :storage          => primary_storage
     )
 
     hardware = persister.hardwares.build(
@@ -76,8 +79,22 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_disks(vm, hardware)
     vm.disks.each do |disk|
-      # Get disk size from backing info
-      size_bytes = disk.backing_info&.disk_size_bytes rescue nil
+      # First try to get container UUID from disk backing
+      container_uuid = disk.backing_info&.storage_container_uuid rescue nil
+      
+      # Then try to get from VM's storage config
+      if container_uuid.nil?
+        container_uuid = vm.storage_config&.storage_container_reference&.uuid rescue nil
+      end
+      
+      # Finally, fall back to the first storage container if available
+      if container_uuid.nil? && persister.storages.data.any?
+        container_uuid = persister.storages.data.first.ems_ref
+      end
+
+      size_bytes = disk.disk_size_bytes || disk.backing_info&.disk_size_bytes rescue nil
+      
+      storage = persister.storages.lazy_find(container_uuid) if container_uuid
 
       persister.disks.build(
         :hardware    => hardware,
@@ -86,9 +103,11 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
         :size        => size_bytes,
         :location    => disk.disk_address&.index.to_s,
         :filename    => disk.ext_id,
+        :storage     => storage
       )
     end
   end
+
 
   def parse_nics(vm, hardware)
     vm.nics.each_with_index do |nic, index|
@@ -126,6 +145,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_datastores
     collector.datastores.each do |ds|
+      container_uuid = ds.ext_id
       persister.storages.build(
         :ems_ref     => ds.container_ext_id,
         :name        => ds.name,
