@@ -5,9 +5,10 @@ FactoryBot.define do
           :parent  => :ems_infra
 
   factory :ems_nutanix_with_vcr_authentication, :parent => :ems_nutanix do
-    zone     { EvmSpecHelper.local_miq_server.zone }
-    hostname { Rails.application.secrets.nutanix[:hostname] }
-    port     { Rails.application.secrets.nutanix[:port] }
+    zone       { EvmSpecHelper.local_miq_server.zone }
+    hostname   { Rails.application.secrets.nutanix[:hostname] }
+    port       { Rails.application.secrets.nutanix[:port] }
+    verify_ssl { 0 }
 
     after(:create) do |ems|
       ems.authentications << FactoryBot.create(

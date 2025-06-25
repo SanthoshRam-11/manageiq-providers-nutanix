@@ -147,7 +147,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
     collector.datastores.each do |ds|
       #container_uuid = ds.ext_id
       persister.storages.build(
-        :ems_ref     => ds.container_ext_id,  # Use actual container UUID
+        :ems_ref     => ds.container_ext_id,
         :name        => ds.name,
         :store_type  => "NutanixVolume",
         :total_space => ds.max_capacity_bytes
