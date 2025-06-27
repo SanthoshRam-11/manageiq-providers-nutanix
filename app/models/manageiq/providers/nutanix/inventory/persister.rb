@@ -8,6 +8,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Persister < ManageIQ::Providers::
     add_collection(infra, :clusters)
     # Hardware and devices
     add_collection(infra, :hardwares)
+    add_collection(infra, :host_hardwares)
     add_collection(infra, :storages)
     add_collection(infra, :disks)
     add_collection(infra, :guest_devices)
