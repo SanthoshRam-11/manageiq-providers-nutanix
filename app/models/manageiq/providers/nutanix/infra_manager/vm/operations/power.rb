@@ -93,7 +93,7 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
     end
   end
 
-  def raw_restart_guest
+  def raw_reboot_guest
     with_provider_connection(service: :VMM) do |connection|
       api = ::NutanixVmm::VmApi.new(connection)
 
@@ -120,15 +120,15 @@ module ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
     end
   end
 
-  def raw_restart_acpi
-    with_provider_connection(service: :VMM) do |connection|
-      api = ::NutanixVmm::VmApi.new(connection)
-      _, _, headers = api.get_vm_by_id_0_with_http_info(ems_ref)
-      etag = headers['etag'] || headers['ETag']
-      request_id = SecureRandom.uuid
-      api.reboot_vm(ems_ref, etag, request_id)
-    end
-  end
+  # def raw_restart_acpi
+  #   with_provider_connection(service: :VMM) do |connection|
+  #     api = ::NutanixVmm::VmApi.new(connection)
+  #     _, _, headers = api.get_vm_by_id_0_with_http_info(ems_ref)
+  #     etag = headers['etag'] || headers['ETag']
+  #     request_id = SecureRandom.uuid
+  #     api.reboot_vm(ems_ref, etag, request_id)
+  #   end
+  # end
 
   def raw_reset
     with_provider_connection(service: :VMM) do |connection|

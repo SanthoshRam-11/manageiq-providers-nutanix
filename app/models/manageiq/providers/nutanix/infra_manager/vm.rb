@@ -11,12 +11,15 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
   supports :start do
     unsupported_reason_add(:start, _('The VM is already powered on')) if raw_power_state == 'ON'
   end
+  
   supports :shutdown_guest do
     unsupported_reason_add(:shutdown_guest, _('The VM is not powered on')) unless raw_power_state == 'ON'
   end
 
-  supports :restart_guest do
-    unsupported_reason_add(:restart_guest, _('The VM is not powered on')) unless raw_power_state == 'ON'
+  supports :reboot_guest do
+    if raw_power_state != 'ON'
+      unsupported_reason_add(:reboot_guest, _('The VM is not powered on'))
+    end
   end
 
   supports :suspend do
@@ -27,10 +30,9 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
     unsupported_reason_add(:reset, _('The VM is not powered on')) unless raw_power_state == 'ON'
   end
 
-  supports :delete do
-    unsupported_reason_add(:delete, _('Cannot delete a running VM')) if raw_power_state == 'ON'
+  supports :terminate do
+    unsupported_reason_add(:terminate, _('Cannot delete a running or suspended VM')) if raw_power_state != 'OFF'
   end
-
 
   def has_required_host?
     true
