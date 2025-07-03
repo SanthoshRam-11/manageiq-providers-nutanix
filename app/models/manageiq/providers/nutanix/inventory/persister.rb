@@ -15,5 +15,6 @@ class ManageIQ::Providers::Nutanix::Inventory::Persister < ManageIQ::Providers::
     add_collection(infra, :networks)
     add_collection(infra, :operating_systems)
     add_collection(infra, :miq_templates)
+    add_collection(infra, :host_storages)
   end
 end

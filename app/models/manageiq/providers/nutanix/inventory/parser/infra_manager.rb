@@ -1,10 +1,12 @@
 class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::Providers::Nutanix::Inventory::Parser
   def parse
+    @cluster_hosts = Hash.new { |h, k| h[k] = [] }
     parse_hosts
     parse_clusters
     parse_templates
     collector.vms.each { |vm| parse_vm(vm) }
     parse_datastores
+    parse_host_storages
   end
 
   private
@@ -21,8 +23,10 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_hosts
     collector.hosts.each do |host|
+      cluster_uuid = host.cluster&.uuid
       ems_cluster = persister.clusters.lazy_find(host.cluster.uuid) if host.cluster&.uuid
 
+      @cluster_hosts[cluster_uuid] << host.ext_id if cluster_uuid
       # In parse_hosts_and_clusters method
       persister_host = persister.hosts.build(
         :ems_ref     => host.ext_id,
@@ -126,13 +130,51 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
 
   def parse_datastores
     collector.datastores.each do |ds|
+      stats = ds.stats
+
+      total_space       = latest_stat(stats.storage_capacity_bytes)
+      free_space        = latest_stat(stats.storage_free_bytes)
+      provisioned_space = latest_stat(stats.storage_usage_bytes)
+
+      percent_free = (free_space.to_f / total_space * 100).round(2) rescue nil
+      cluster_hosts = @cluster_hosts[ds.cluster_uuid] || []
+      total_hosts = cluster_hosts.size
+      puts "Datastore #{ds.name} stats:"
+      puts "  total_space: #{total_space}"
+      puts "  free_space: #{free_space}"
+      puts "  provisioned_space: #{provisioned_space}"
+
       persister.storages.build(
-        :ems_ref     => ds.container_ext_id,
-        :name        => ds.name,
-        :store_type  => "NutanixVolume",
-        :total_space => ds.max_capacity_bytes
+        :ems_ref            => ds.container_ext_id,
+        :name               => ds.name,
+        :store_type         => "NutanixVolume",
+        :total_space        => total_space,
+        :free_space         => free_space,
+        :uncommitted        => provisioned_space,
+        :multiplehostaccess => true,
+        :location           => ds.clusterName
       )
     end
+  end
+
+  def parse_host_storages
+    # Associate all hosts in a cluster with its datastores
+    collector.datastores.each do |ds|
+      next unless (host_ids = @cluster_hosts[ds.cluster_uuid])
+      
+      host_ids.each do |host_id|
+        persister.host_storages.build(
+          :host    => persister.hosts.lazy_find(host_id),
+          :storage => persister.storages.lazy_find(ds.container_ext_id)
+        )
+      end
+    end
+  end
+  
+  def latest_stat(stat_array)
+    return 0 if stat_array.nil? || !stat_array.respond_to?(:max_by)
+
+    stat_array.max_by(&:timestamp)&.value || 0
   end
 
   def parse_templates
