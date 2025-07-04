@@ -2,6 +2,14 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
   include SupportsFeatureMixin
   include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Power
   include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::RemoteConsole
+  include ManageIQ::Providers::Nutanix::InfraManager::Vm::Operations::Reconfigure
+
+  supports :reconfigure
+  supports :reconfigure_network_adapters
+  supports :reconfigure_disksize do
+    'Cannot resize disks of a VM with snapshots' if snapshots.count > 1
+  end
+
   # Better power state mapping
   POWER_STATES = {
     "ON"  => "on",
