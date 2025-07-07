@@ -128,31 +128,42 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
     )
   end
 
+  def bytes_to_human_readable(bytes)
+    return nil if bytes.nil?
+    units = %w[B KB MB GB TB PB]
+    return '0 B' if bytes == 0
+
+    exp = (Math.log(bytes) / Math.log(1024)).to_i
+    exp = units.size - 1 if exp >= units.size
+    "%.2f %s" % [bytes.to_f / (1024 ** exp), units[exp]]
+  end
+
   def parse_datastores
     collector.datastores.each do |ds|
       stats = ds.stats
 
-      total_space       = latest_stat(stats.storage_capacity_bytes)
-      free_space        = latest_stat(stats.storage_free_bytes)
-      provisioned_space = latest_stat(stats.storage_usage_bytes)
+      total_physical   = latest_stat(stats.storage_capacity_bytes) || ds.max_capacity_bytes
+      free_physical    = latest_stat(stats.storage_free_bytes)
+      used_physical    = total_physical - free_physical
+      provisioned_bytes = latest_stat(stats.storage_usage_bytes) || 0
 
-      percent_free = (free_space.to_f / total_space * 100).round(2) rescue nil
-      cluster_hosts = @cluster_hosts[ds.cluster_uuid] || []
-      total_hosts = cluster_hosts.size
       puts "Datastore #{ds.name} stats:"
-      puts "  total_space: #{total_space}"
-      puts "  free_space: #{free_space}"
-      puts "  provisioned_space: #{provisioned_space}"
+      puts "  Physical Total: #{bytes_to_human_readable(total_physical)}"
+      puts "  Physical Free: #{bytes_to_human_readable(free_physical)}"
+      puts "  Physical Used: #{bytes_to_human_readable(used_physical)}"
+      puts "  Provisioned: #{bytes_to_human_readable(provisioned_bytes)}"
 
       persister.storages.build(
         :ems_ref            => ds.container_ext_id,
         :name               => ds.name,
         :store_type         => "NutanixVolume",
-        :total_space        => total_space,
-        :free_space         => free_space,
-        :uncommitted        => provisioned_space,
+        :storage_domain_type => "primary",
+        :total_space        => total_physical,
+        :free_space         => free_physical,
+        :uncommitted        => provisioned_bytes,
         :multiplehostaccess => true,
-        :location           => ds.clusterName
+        :location           => ds.clusterName,
+        :master             => true
       )
     end
   end
