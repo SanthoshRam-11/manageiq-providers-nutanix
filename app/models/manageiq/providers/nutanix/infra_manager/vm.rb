@@ -11,7 +11,7 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
   #     'Cannot resize disks of a VM with snapshots'
   #   end
   # end
-
+  supports :nutanix_reconfigure
   def network_adapters
     hardware.nics.map do |nic|
       {
