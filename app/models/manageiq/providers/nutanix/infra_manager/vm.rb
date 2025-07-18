@@ -12,35 +12,63 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
   #   end
   # end
   supports :nutanix_reconfigure
-  def network_adapters
-    hardware.nics.map do |nic|
-      {
-        :name        => nic.device_name,
-        :mac_address => nic.mac_address,
-        :vlan        => nic.lan&.name,
-        :uid_ems     => nic.uid_ems,
-        :network_uuid => nic.uid_ems  # Nutanix uses NIC UUID as network identifier
-      }
-    end
+  supports :nutanix_disk_details
+  supports :nutanix_network_details
+  
+  def raw
+    ems = ext_management_system
+    raise _("No EMS connected") unless ems
+
+    client = ems.connect
+    vm_api = NutanixVmm::VmApi.new(client)
+    vm_api.get_vm_by_id_0(uid_ems)
   end
 
-  # Add validation for reconfigure
-  def validate_reconfigure
-    errors = []
-    
-    if snapshots.count > 1
-      errors << 'Cannot reconfigure VM with snapshots'
+
+  def nutanix_disk_details(userid = nil, taskid = nil, args = nil)
+    disks = provider_object.to_hash[:data][:disks] || []
+    result = disks.map do |disk|
+      {
+        disk_type: disk.dig(:deviceProperties, :deviceType),
+        controller_type: disk.dig(:diskAddress, :busType),
+        size_gb: disk[:diskSizeBytes] ? disk[:diskSizeBytes] / 1.gigabyte : nil,
+        storage_name: disk.dig(:storageContainer, :name) || 'N/A',
+      }
     end
-    
-    if raw_power_state != 'OFF'
-      errors << 'VM must be powered off for reconfiguration'
+
+    if taskid
+      task = MiqTask.find(taskid)
+      task.update_status(taskid, "Finished", "Ok", "Fetched Nutanix disk details")
+      task.update!(:context_data => result)
     end
-    
-    if errors.any?
-      {:available => false, :message => errors.join('; ')}
-    else
-      {:available => true, :message => nil}
+
+    result
+  end
+
+
+  def nutanix_network_details(userid = nil, taskid = nil, args = nil)
+    vm_hash = provider_object.to_hash
+    nics = vm_hash[:data][:nics] || []
+
+    result = nics.map do |nic|
+      subnet_ext_id = nic.dig(:networkInfo, :subnet, :extId)
+      private_ip = nic.dig(:networkInfo, :ipv4Config, :ipAddress, :value)
+
+      {
+        subnet_ext_id: subnet_ext_id,
+        vlan_id: nil,  # No direct VLAN ID found, maybe via subnet or VPC API if available
+        private_ip: private_ip,
+        public_ip: nil  # Not found here
+      }
     end
+
+    if taskid
+      task = MiqTask.find(taskid)
+      task.update_status(taskid, "Finished", "Ok", "Fetched Nutanix network details")
+      task.update!(:context_data => result)
+    end
+
+    result
   end
 
   # Better power state mapping
@@ -94,7 +122,12 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
   def provider_object(connection = nil)
     connection ||= ext_management_system.connect
     api = NutanixVmm::VmApi.new(connection)
-    api.get_vm(ems_ref)
+    vm_response = api.get_vm_by_id_0(ems_ref)
+
+    # Log the raw response for debugging
+    $log.info("Nutanix VM SDK response for ems_ref=#{ems_ref}: #{vm_response.to_hash.inspect}")
+
+    vm_response
   end
 
   # Add custom methods for UI display

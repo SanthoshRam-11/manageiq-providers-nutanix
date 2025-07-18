@@ -1,10 +1,34 @@
 class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::Providers::Nutanix::Inventory::Parser
+
+  def parser_class
+    ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager
+  end
+
+  def collect_inventory_for_targets(ems, targets)
+    targets.collect do |target|
+      collector = ManageIQ::Providers::Nutanix::Inventory::Collector::InfraManager.new(ems, target)
+      persister = ManageIQ::Providers::Nutanix::Inventory::Persister::InfraManager.new(ems, target)
+      parser    = parser_class.new(collector, persister) # ✅ Fix: pass args
+
+      parser.parse
+
+      inventory = Inventory::InventoryCollection.new(
+        persister.inventory_collections
+      )
+
+      [target, inventory]
+    end
+  end
+
   def parse
     @cluster_hosts = Hash.new { |h, k| h[k] = [] }
     parse_hosts
     parse_clusters
     parse_templates
-    collector.vms.each { |vm| parse_vm(vm) }
+    collector.vms.each do |vm|
+      next if vm.nil?  # ✅ Prevent crash on nil VM
+      parse_vm(vm)
+    end
     parse_datastores
     parse_host_storages
   end
@@ -45,10 +69,11 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
   end
 
   def parse_vm(vm)
-    # Get OS info from VM description (or other available fields)
     os_info = vm.description.to_s.match(/OS: (.+)/)&.captures&.first || 'unknown'
 
-    # Main VM attributes
+    raw_vm = fetch_raw_vm_by_id(vm.ext_id)
+    raw_disks = raw_vm["disks"] if raw_vm
+
     vm_obj = persister.vms.build(
       :ems_ref          => vm.ext_id,
       :uid_ems          => vm.bios_uuid,
@@ -70,26 +95,93 @@ class ManageIQ::Providers::Nutanix::Inventory::Parser::InfraManager < ManageIQ::
       :cpu_total_cores      => vm.num_sockets * vm.num_cores_per_socket,
       :cpu_sockets          => vm.num_sockets,
       :cpu_cores_per_socket => vm.num_cores_per_socket,
-      :guest_os             => os_info # Use extracted OS info
+      :guest_os             => os_info
     )
-    # Then use vm_obj for subsequent associations
-    parse_disks(vm, hardware)  # This should reference the hardware object
+
+    # ✅ FIXED: now passing raw_disks to parse_disks
+    parse_disks(vm, hardware, raw_disks)
     parse_nics(vm, hardware)
     parse_operating_system(vm, hardware, os_info, vm_obj)
   end
 
-  def parse_disks(vm, hardware)
-    vm.disks.each do |disk|
-      # Get disk size from backing info
-      size_bytes = disk.backing_info&.disk_size_bytes rescue nil
+  def extract_disk_backing_info(disk)
+    raw_disk = nil
+    disk_size_bytes = nil
+    storage_container_uuid = nil
+
+    # Safely get raw disk hash
+    if disk.respond_to?(:instance_variable_get)
+      raw_disk = disk.instance_variable_get(:@raw) rescue nil
+    end
+
+    if raw_disk.is_a?(Hash)
+      backing = raw_disk["backing_info"] || raw_disk["backingInfo"]
+      if backing
+        disk_size_bytes = backing["disk_size_bytes"] || backing["diskSizeBytes"]
+
+        container = backing["storage_container"] || backing["storageContainer"]
+        if container.is_a?(Hash)
+          storage_container_uuid = container["ext_id"] || container["uuid"] || container["id"]
+        end
+      end
+    end
+
+    # Fallbacks (optional)
+    disk_size_bytes ||= disk.try(:backing_info)&.try(:disk_size_bytes)
+    storage_container_uuid ||= disk.try(:backing_info)&.try(:storage_container)&.try(:ext_id)
+
+    [disk_size_bytes, storage_container_uuid]
+  end
+
+  def fetch_raw_vm_by_id(vm_id)
+    connection = @collector.connection
+    response = connection.get("/api/vmm/v4.0/ahv/config/vms/#{vm_id}")
+    JSON.parse(response.body)["data"]
+  rescue => e
+    $log.error("Error fetching raw VM #{vm_id}: #{e}")
+    nil
+  end
+
+  def parse_disks(vm, hardware, raw_disks = nil)
+    vm.disks.each_with_index do |disk, index|
+      raw_disk = raw_disks&.find { |d| d["extId"] == disk.ext_id } if raw_disks
+
+      # Extract disk size and storage container UUID with fallbacks
+      disk_size_bytes = 0
+      storage_container_uuid = nil
+
+      if raw_disk
+        backing_info = raw_disk["backingInfo"] || raw_disk["backing_info"]
+        if backing_info
+          disk_size_bytes = backing_info["diskSizeBytes"] || backing_info["disk_size_bytes"] || 0
+          container = backing_info["storageContainer"] || backing_info["storage_container"]
+          storage_container_uuid = container["extId"] || container["ext_id"] || container["uuid"] if container
+        end
+      else
+        disk_size_bytes = disk.size_bytes if disk.respond_to?(:size_bytes)
+        storage_container_uuid = disk.storage_container.ext_id if disk.respond_to?(:storage_container) && disk.storage_container
+      end
+
+      disk_size_mb = disk_size_bytes.to_i / 1.megabyte
+
+      # Add debug print here:
+      puts "Disk ##{index} for VM #{vm.name} (ext_id: #{disk.ext_id}):"
+      puts "  Size (bytes): #{disk_size_bytes}"
+      puts "  Size (MB): #{disk_size_mb}"
+      puts "  Storage Container UUID: #{storage_container_uuid}"
+      puts "  Disk Address Bus Type: #{disk.disk_address&.bus_type}"
 
       persister.disks.build(
-        :hardware    => hardware,
-        :device_name => "Disk #{disk.disk_address&.index}",
-        :device_type => disk.disk_address&.bus_type,
-        :size        => size_bytes,
-        :location    => disk.disk_address&.index.to_s,
-        :filename    => disk.ext_id,
+        :hardware         => hardware,
+        :device_name      => "Disk #{index}",
+        :device_type      => "disk",
+        :controller_type  => disk.disk_address&.bus_type&.downcase || "scsi",
+        :size             => disk_size_mb,
+        :location         => "unknown",
+        :filename         => disk.ext_id,
+        :storage          => persister.storages.lazy_find(storage_container_uuid),
+        :present          => true,
+        :start_connected  => true
       )
     end
   end
