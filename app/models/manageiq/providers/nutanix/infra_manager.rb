@@ -2,6 +2,12 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
   supports :create
   supports :management_console
   validate :hostname_uniqueness_valid?
+
+  has_many :subnets,
+          class_name: 'ManageIQ::Providers::Nutanix::InfraManager::Subnet',
+          primary_key: :uid_ems,
+          foreign_key: :ems_ref
+
   def allow_targeted_refresh?
     true
   end
@@ -191,6 +197,10 @@ class ManageIQ::Providers::Nutanix::InfraManager < ManageIQ::Providers::InfraMan
 
   def self.description
     @description ||= "Nutanix".freeze
+  end
+
+  def connection
+    connect(:service => "Infra")
   end
 
   # ConnectionManager provides access to different API instances

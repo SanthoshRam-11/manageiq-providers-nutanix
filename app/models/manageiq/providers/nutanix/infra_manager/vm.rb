@@ -14,16 +14,6 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
   supports :nutanix_reconfigure
   supports :nutanix_disk_details
   supports :nutanix_network_details
-  
-  def raw
-    ems = ext_management_system
-    raise _("No EMS connected") unless ems
-
-    client = ems.connect
-    vm_api = NutanixVmm::VmApi.new(client)
-    vm_api.get_vm_by_id_0(uid_ems)
-  end
-
 
   def nutanix_disk_details(userid = nil, taskid = nil, args = nil)
     disks = provider_object.to_hash[:data][:disks] || []
