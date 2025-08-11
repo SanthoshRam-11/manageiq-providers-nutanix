@@ -2,7 +2,7 @@ class ManageIQ::Providers::Nutanix::Inventory::Collector::InfraManager < ManageI
   require 'rest-client'
   require 'json'
   require 'openssl'
-  Datastore = Struct.new(:container_ext_id, :name, :max_capacity_bytes, :cluster_name, :cluster_uuid, :stats)
+  Datastore = Struct.new(:container_ext_id, :name, :max_capacity_bytes, :clusterName, :cluster_uuid, :stats)
 
   def clusters
     @clusters ||= begin
@@ -91,8 +91,8 @@ class ManageIQ::Providers::Nutanix::Inventory::Collector::InfraManager < ManageI
       password: manager.authentication_password,
       verify_ssl: false
     )
-    parsed = JSON.parse(response.body)                     # ✅ assign first
-    puts "DEBUG: VM list response: #{parsed.inspect}"      # ✅ log after
+    parsed = JSON.parse(response.body)                 
+    puts "DEBUG: VM list response: #{parsed.inspect}"
     parsed["data"] || []
   rescue => e
     $log.warn("Failed to fetch VM list: #{e.message}")
@@ -126,34 +126,55 @@ class ManageIQ::Providers::Nutanix::Inventory::Collector::InfraManager < ManageI
     nil
   end
 
-  def subnets_by_ref
-    @subnets_by_ref ||= begin
-      subnets = []  # Replace with actual REST call
-      subnets.compact.index_by { |s| s.respond_to?(:ext_id) ? s.ext_id : nil }
-    end
-  end
-
   def list_subnets
     @subnets ||= begin
-      url = "https://#{@ems.hostname}:9440/api/networking/v4.0.a1/config/subnets"
-      response = RestClient::Request.execute(
-        method: :get,
-        url: url,
-        user: @ems.authentication_userid,
-        password: @ems.authentication_password,
-        verify_ssl: false
-      )
-      json = JSON.parse(response.body)
-      json["entities"] || []
+      all_subnets = []
+      next_page_token = nil
+      base_url = "https://#{manager.hostname}:9440/api/networking/v4.0/config/subnets"
+
+      loop do
+        url = next_page_token ? "#{base_url}?pageToken=#{next_page_token}" : base_url
+        puts "DEBUG: Fetching subnets from: #{url}"
+
+        response = RestClient::Request.execute(
+          method: :get,
+          url: url,
+          user: manager.authentication_userid,
+          password: manager.authentication_password,
+          verify_ssl: false,
+          headers: { accept: 'application/json' }
+        )
+
+        json = JSON.parse(response.body)
+        current_subnets = json["data"] || json["entities"] || []
+
+        unless current_subnets.is_a?(Array)
+          puts "WARN: Expected array, got #{current_subnets.class}"
+          current_subnets = []
+        end
+
+        current_subnets.map!(&:deep_stringify_keys)
+        puts "DEBUG: Found #{current_subnets.size} subnets"
+
+        all_subnets.concat(current_subnets)
+        next_page_token = json.dig("metadata", "nextPageToken")
+        break unless next_page_token.present?
+      end
+
+      puts "DEBUG: Total subnets collected: #{all_subnets.size}"
+      all_subnets
     rescue => e
-      $log.warn("Failed to fetch subnet list: #{e.message}")
+      puts "ERROR: Failed to fetch subnet list: #{e.message}"
       []
     end
   end
 
-  # Hash map for fast lookup by UUID
+  def subnets
+    @subnets ||= list_subnets
+  end
+
   def subnets_by_id
-    @subnets_by_id ||= list_subnets.index_by { |s| s.dig("metadata", "uuid") }
+    @subnets_by_id ||= list_subnets.index_by { |s| s.dig("metadata", "uuid") || s["extId"] }
   end
 
   # Optional: fetch a **single** subnet by UUID (if needed in detail)
