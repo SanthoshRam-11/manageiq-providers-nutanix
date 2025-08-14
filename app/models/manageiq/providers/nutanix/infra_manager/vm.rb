@@ -175,129 +175,60 @@ class ManageIQ::Providers::Nutanix::InfraManager::Vm < ManageIQ::Providers::Infr
     Rails.logger.info("Starting nutanix_attach_interface for VM: #{name} (#{ems_ref}) with options: #{options.inspect}")
 
     network_id = options[:network_id] || options["network_id"]
-    if network_id.blank?
-      Rails.logger.error("No network_id provided for attaching interface")
-      raise MiqException::Error, "network_id parameter is required to attach interface"
-    end
+    raise MiqException::Error, "network_id parameter is required to attach interface" if network_id.blank?
 
-    # REMOVED: Power state check - Nutanix AHV supports hot-plug NIC operations
     Rails.logger.info("VM power state: #{raw_power_state} - proceeding with NIC attachment (hot-plug supported)")
 
-    begin
-      retries ||= 0
-      max_retries = 3
-      
-      # Get connection from EMS
-      connection = ext_management_system.connect
-      
-      # Get VM info and ETag
-      vm_api = NutanixVmm::VmApi.new(connection)
-      vm_info, status, headers = vm_api.get_vm_by_id_0_with_http_info(ems_ref)
-      etag = headers['ETag']
-      
-      if etag.blank?
-        Rails.logger.error("ETag header missing from VM response")
-        raise MiqException::Error, "ETag header missing from VM response"
-      end
+    retries ||= 0
+    max_retries = 3
 
-      # FIXED: Enhanced NIC payload for hot-plug compatibility
-      payload = {
-        backingInfo: {
-          model: "VIRTIO", # VIRTIO is recommended for performance and hot-plug support
-          isConnected: true
-        },
-        networkInfo: {
-          nicType: "NORMAL_NIC",
-          subnet: {
-            extId: network_id
-          }
-        }
+    connection = ext_management_system.connect
+    vm_api = NutanixVmm::VmApi.new(connection)
+    vm_info, status, headers = vm_api.get_vm_by_id_0_with_http_info(ems_ref)
+    etag = headers['ETag']
+    raise MiqException::Error, "ETag header missing from VM response" if etag.blank?
+
+    payload = {
+      backingInfo: {
+        model: "VIRTIO",
+        isConnected: true,
+        hotPlugSupported: true,
+        autoConnect: true
+      },
+      networkInfo: {
+        nicType: "NORMAL_NIC",
+        subnet: { extId: network_id }
       }
+    }
 
-      # Add hot-plug specific configuration if VM is powered on
-      if raw_power_state == "ON"
-        Rails.logger.info("VM is powered on - enabling hot-plug configuration")
-        payload[:backingInfo][:hotPlugSupported] = true
-        payload[:backingInfo][:autoConnect] = true
-      end
+    path = "/api/vmm/v4.0/ahv/config/vms/#{ems_ref}/nics"
+    url = URI.parse(connection.config.base_url)
+    full_url = "#{url.scheme}://#{url.host}:#{url.port}#{path}"
 
-      # Use API version 4.0
-      path = "/api/vmm/v4.0/ahv/config/vms/#{ems_ref}/nics"
-      url = URI.parse(connection.config.base_url)
-      full_url = "#{url.scheme}://#{url.host}:#{url.port}#{path}"
+    http = Net::HTTP.new(url.host, url.port)
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
 
-      Rails.logger.info("Using ETag: #{etag.inspect}")
-      Rails.logger.info("Sending request to: #{full_url}")
-      Rails.logger.info("Payload: #{payload.to_json}")
+    request = Net::HTTP::Post.new(path)
+    request['Content-Type'] = 'application/json'
+    request['Accept'] = 'application/json'
+    request['If-Match'] = etag
+    request['NTNX-Request-Id'] = SecureRandom.uuid
+    if connection.config.respond_to?(:api_key) && connection.config.api_key.present?
+      request['Authorization'] = "Bearer #{connection.config.api_key}"
+    else
+      request.basic_auth(connection.config.username, connection.config.password)
+    end
+    request.body = payload.to_json
 
-      # Create HTTP request
-      http = Net::HTTP.new(url.host, url.port)
-      http.use_ssl = true
-      http.verify_mode = OpenSSL::SSL::VERIFY_NONE  # For testing only
-      
-      request = Net::HTTP::Post.new(path)
-      request['Content-Type'] = 'application/json'
-      request['Accept'] = 'application/json'
-      request['If-Match'] = etag
-      request['NTNX-Request-Id'] = SecureRandom.uuid
-      
-      # Use proper authentication
-      if connection.config.respond_to?(:api_key) && connection.config.api_key.present?
-        request['Authorization'] = "Bearer #{connection.config.api_key}"
-      else
-        request.basic_auth(connection.config.username, connection.config.password)
-      end
-      
-      request.body = payload.to_json
+    response = http.request(request)
 
-      # Send request and handle response
-      response = http.request(request)
-      
-      case response
-      when Net::HTTPSuccess, Net::HTTPCreated, Net::HTTPAccepted
-        Rails.logger.info("Successfully attached interface to VM #{name}")
-        Rails.logger.info("Response: #{response.body}")
-        response_body = response.body.present? ? JSON.parse(response.body) : { success: true }
-        return response_body
-      when Net::HTTPPreconditionFailed
-        Rails.logger.error("412 Precondition Failed - ETag mismatch")
-        raise MiqException::Error, "ETag mismatch - VM was modified by another process"
-      when Net::HTTPBadRequest
-        Rails.logger.error("400 Bad Request - #{response.body}")
-        # Check if it's a hot-plug related error
-        if response.body.include?("hot") || response.body.include?("power")
-          raise MiqException::Error, "Hot-plug operation failed. VM may need to be powered off for this network configuration."
-        else
-          raise MiqException::Error, "Bad request: #{response.body}"
-        end
-      when Net::HTTPUnauthorized
-        Rails.logger.error("401 Unauthorized - Check credentials")
-        raise MiqException::Error, "Authentication failed"
-      when Net::HTTPForbidden
-        Rails.logger.error("403 Forbidden - Insufficient permissions")
-        raise MiqException::Error, "Insufficient permissions to attach interface"
-      when Net::HTTPConflict
-        Rails.logger.error("409 Conflict - #{response.body}")
-        raise MiqException::Error, "Configuration conflict: #{response.body}"
-      else
-        Rails.logger.error("HTTP Error #{response.code}: #{response.body}")
-        raise MiqException::Error, "HTTP Error #{response.code}: #{response.body}"
-      end
-
-    rescue => e
-      if e.message.include?('412') && (retries += 1) <= max_retries
-        Rails.logger.warn("ETag mismatch, retrying (#{retries}/#{max_retries})")
-        sleep 1
-        retry
-      end
-      
-      Rails.logger.error("Error attaching interface: #{e.class} - #{e.message}\n#{e.backtrace.join("\n")}")
-      
-      if e.is_a?(MiqException::Error)
-        raise e
-      else
-        raise MiqException::Error, "Nutanix API Error: #{e.message}"
-      end
+    case response
+    when Net::HTTPSuccess, Net::HTTPCreated, Net::HTTPAccepted
+      Rails.logger.info("Successfully attached NIC to VM #{name}")
+      return response.body.present? ? JSON.parse(response.body) : { success: true }
+    else
+      raise MiqException::Error, "Failed to attach NIC: #{response.code} - #{response.body}"
     end
   end
 
